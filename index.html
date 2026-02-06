@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="nl-IT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jukebox Document Reader V2.7</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background-color: #121212; color: #e0e0e0; display: flex; justify-content: center; padding: 20px; margin: 0; }
+        .jukebox-case { width: 100%; max-width: 500px; background: #1a1a1a; border: 5px solid #444; border-radius: 30px; padding: 25px; box-shadow: 0 0 30px #000; box-sizing: border-box; }
+        .header { text-align: center; border-bottom: 2px solid #ff5722; margin-bottom: 20px; }
+        .header h1 { color: #ff5722; font-size: 1.5em; text-transform: uppercase; }
+        .screen { background-color: #000; color: #00ff41; padding: 15px; border-radius: 5px; height: 80px; margin-bottom: 20px; border: 3px inset #333; font-family: monospace; text-align: center; display: flex; align-items: center; justify-content: center; }
+        .control-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+        .full-width { grid-column: span 3; }
+        select, button, .file-label { width: 100%; padding: 15px 5px; border-radius: 8px; border: none; background: #333; color: white; font-weight: bold; text-align: center; cursor: pointer; font-size: 0.85em; box-sizing: border-box; }
+        .file-label { background-color: #444; border: 2px dashed #666; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        input[type="file"] { display: none; }
+        .btn-play { background: #4CAF50; border-bottom: 3px solid #1B5E20; }
+        .btn-pause { background: #FF9800; border-bottom: 3px solid #E65100; }
+        .btn-stop { background: #f44336; border-bottom: 3px solid #8e0000; }
+        select { background: #2196F3; }
+        
+        /* Stijl voor de snelheidsregelaar */
+        .slider-container { margin: 15px 0; text-align: center; background: #222; padding: 10px; border-radius: 10px; border: 1px solid #444; }
+        input[type=range] { width: 80%; cursor: pointer; accent-color: #ff5722; }
+        .slider-label { font-size: 0.75em; color: #888; text-transform: uppercase; margin-bottom: 5px; display: block; }
+    </style>
+</head>
+<body>
+
+<div class="jukebox-case">
+    <div class="header"><h1>Lecteur • Lettore</h1></div>
+    <div class="screen" id="display">KLAAR VOOR GEBRUIK<br>PRONTO ALL'USO</div>
+
+    <div class="control-grid">
+        <div class="full-width">
+            <label for="fileInput" class="file-label" id="fileLabel">📄 SELECTEER / SELEZIONA</label>
+            <input type="file" id="fileInput" accept=".pdf,.txt">
+        </div>
+
+        <div class="full-width">
+            <select id="langSelect" onchange="loadVoices()">
+                <option value="it-IT">🇮🇹 ITALIANO</option>
+                <option value="nl-NL">🇳🇱 NEDERLANDS</option>
+            </select>
+        </div>
+
+        <div class="full-width slider-container">
+            <span class="slider-label">Snelheid / Velocità: <span id="speedVal">1.0</span>x</span>
+            <input type="range" id="speedRate" min="0.5" max="2.0" step="0.1" value="1.0" oninput="document.getElementById('speedVal').innerText=this.value">
+        </div>
+
+        <button class="btn-play" id="playBtn">START</button>
+        <button class="btn-pause" onclick="window.speechSynthesis.pause()">PAUZE</button>
+        <button class="btn-stop" onclick="window.speechSynthesis.cancel()">STOP</button>
+        
+        <div class="full-width">
+            <select id="voiceSelect"><option>Laden / Caricamento...</option></select>
+        </div>
+    </div>
+</div>
+
+<script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+    let currentText = "";
+
+    function updateDisplay(nl, it) {
+        document.getElementById('display').innerHTML = `${nl}<br><span style="color: #008f11; font-size: 0.8em;">${it}</span>`;
+    }
+
+    function loadVoices() {
+        const voices = window.speechSynthesis.getVoices();
+        const select = document.getElementById('voiceSelect');
+        const langCode = document.getElementById('langSelect').value.split('-')[0];
+        select.innerHTML = '';
+        voices.filter(v => v.lang.startsWith(langCode)).forEach(v => {
+            const opt = document.createElement('option');
+            opt.textContent = v.name; opt.value = v.name;
+            select.appendChild(opt);
+        });
+    }
+
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+
+    document.getElementById('fileInput').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        document.getElementById('fileLabel').innerText = file.name;
+        updateDisplay("LADEN...", "CARICAMENTO...");
+        
+        try {
+            let t = "";
+            if (file.type === "application/pdf") {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const content = await page.getTextContent();
+                    t += content.items.map(item => item.str).join(" ") + " ";
+                }
+            } else {
+                t = await file.text();
+            }
+            
+            // Opschonen: Repareert de spaties-tussen-letters fout (Andrea Vitali cover fix)
+            currentText = t.replace(/(?<=[a-zA-Z])\s(?=[a-zA-Z]\b)/g, '')
+                           .replace(/\s+/g, ' ')
+                           .trim();
+
+            updateDisplay("KLAAR: DRUK START", "PRONTO: PREMI START");
+        } catch (e) {
+            updateDisplay("FOUT", "ERRORE");
+        }
+    });
+
+    document.getElementById('playBtn').addEventListener('click', () => {
+        if (window.speechSynthesis.paused) {
+            window.speechSynthesis.resume();
+            return;
+        }
+
+        window.speechSynthesis.cancel();
+        
+        if (!currentText) return;
+
+        const sentences = currentText.match(/[^.!?]+[.!?]+/g) || [currentText];
+        const lang = document.getElementById('langSelect').value;
+        const selectedVoiceName = document.getElementById('voiceSelect').value;
+        const currentSpeed = parseFloat(document.getElementById('speedRate').value);
+        const voices = window.speechSynthesis.getVoices();
+        const v = voices.find(voice => voice.name === selectedVoiceName);
+
+        sentences.forEach((text, index) => {
+            const ut = new SpeechSynthesisUtterance(text.trim());
+            ut.lang = lang;
+            if (v) ut.voice = v;
+            ut.rate = currentSpeed; // Gebruik de snelheid van de slider
+            
+            if (index === 0) ut.onstart = () => updateDisplay("LEZEN...", "LEGGENDO...");
+            if (index === sentences.length - 1) ut.onend = () => updateDisplay("KLAAR", "FINITO");
+            
+            window.speechSynthesis.speak(ut);
+        });
+    });
+
+    setTimeout(loadVoices, 500);
+</script>
+</body>
+</html>
