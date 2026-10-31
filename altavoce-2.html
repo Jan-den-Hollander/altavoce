@@ -1,0 +1,495 @@
+<!--
+================================================================================
+  Rivelazione alta voce — Strumento di altavoce 
+================================================================================
+  Copyright (c) 2025 Jan den Hollander 
+  Tutti i diritti riservati.
+
+  Quest'opera è protetta dal diritto d'autore (Legge 633/1941, Italia;
+  Auteurswet 1912, Paesi Bassi) e dalla Convenzione di Berna.
+  È vietata la riproduzione, distribuzione o creazione di opere derivate
+  senza esplicito consenso scritto dell'autore.
+
+  Contact: jandenhollander@duck.com 
+================================================================================
+-->
+<!DOCTYPE html>
+<html lang="nl-IT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jukebox Document Reader V3.1</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background-color: #121212; color: #e0e0e0; display: flex; justify-content: center; padding: 20px; margin: 0; }
+        .jukebox-case { width: 100%; max-width: 500px; background: #1a1a1a; border: 5px solid #444; border-radius: 30px; padding: 25px; box-shadow: 0 0 30px #000; box-sizing: border-box; }
+        .header { text-align: center; border-bottom: 2px solid #ff5722; margin-bottom: 20px; }
+        .header h1 { color: #ff5722; font-size: 1.5em; text-transform: uppercase; }
+        .screen { background-color: #000; color: #00ff41; padding: 15px; border-radius: 5px; height: 80px; margin-bottom: 20px; border: 3px inset #333; font-family: monospace; text-align: center; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .control-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+        .full-width { grid-column: span 3; }
+        select, button, .file-label, textarea { width: 100%; padding: 15px 5px; border-radius: 8px; border: none; background: #333; color: white; font-weight: bold; text-align: center; cursor: pointer; font-size: 0.85em; box-sizing: border-box; }
+        textarea { text-align: left; height: 120px; font-weight: normal; resize: none; background: #222; border: 1px solid #444; color: #00ff41; padding: 10px; }
+        .file-label { background-color: #444; border: 2px dashed #666; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        input[type="file"] { display: none; }
+        .btn-play { background: #4CAF50; border-bottom: 3px solid #1B5E20; }
+        .btn-pause { background: #FF9800; border-bottom: 3px solid #E65100; }
+        .btn-stop { background: #f44336; border-bottom: 3px solid #8e0000; }
+        select { background: #2196F3; }
+        input[type=password], input[type=text] { width: 100%; padding: 12px 8px; border-radius: 8px; border: 1px solid #444; background: #222; color: #00ff41; font-size: 0.85em; box-sizing: border-box; margin-bottom: 8px; }
+        .cloud-box { background: #222; padding: 12px; border-radius: 10px; border: 1px solid #444; }
+        .cloud-box small { color: #888; display: block; margin-bottom: 6px; font-size: 0.7em; }
+        .slider-container { margin: 10px 0; text-align: center; background: #222; padding: 10px; border-radius: 10px; border: 1px solid #444; }
+        input[type=range] { width: 80%; accent-color: #ff5722; }
+        .tab-buttons { display: flex; gap: 5px; margin-bottom: 15px; }
+        .tab-btn { flex: 1; padding: 10px; font-size: 0.7em; background: #444; border-radius: 5px; transition: 0.3s; }
+        .tab-btn.active { background: #ff5722; }
+    </style>
+</head>
+<body>
+
+<div class="jukebox-case">
+    <div class="header"><h1>Lecteur • Lettore</h1></div>
+    <div class="screen" id="display">SYSTEEM KLAAR<br>SISTEMA PRONTO</div>
+
+    <div class="tab-buttons">
+        <button class="tab-btn active" id="tabFile" onclick="switchMode('file')">BESTAND / FILE</button>
+        <button class="tab-btn" id="tabPaste" onclick="switchMode('paste')">PLAKKEN / INCOLLA</button>
+    </div>
+
+    <div class="control-grid">
+        <div id="fileSection" class="full-width">
+            <label for="fileInput" class="file-label" id="fileLabel">📄 SELECTEER / SELEZIONA</label>
+            <input type="file" id="fileInput" accept=".pdf,.txt">
+        </div>
+
+        <div id="pasteSection" class="full-width" style="display: none;">
+            <textarea id="textInput" placeholder="Plak hier je tekst... / Incolla qui il tuo testo..."></textarea>
+        </div>
+
+        <div class="full-width">
+            <select id="langSelect" onchange="loadVoices()">
+                <option value="it-IT">🇮🇹 ITALIANO</option>
+                <option value="nl-NL">🇳🇱 NEDERLANDS</option>
+            </select>
+        </div>
+
+        <div class="full-width">
+            <select id="sourceSelect" onchange="onSourceChange()">
+                <option value="local">📱 TELEFOONSTEM</option>
+                <option value="cloud">☁ GEMINI (CLOUD, PROEF)</option>
+            </select>
+        </div>
+
+        <div id="cloudBox" class="full-width cloud-box" style="display:none;">
+            <small>API-sleutel (blijft alleen in deze browser)</small>
+            <input type="password" id="geminiKey" placeholder="Gemini API key" autocomplete="off">
+            <small>Model</small>
+            <input type="text" id="geminiModel" value="gemini-3.1-flash-tts-preview" autocomplete="off">
+            <small>Stem</small>
+            <select id="geminiVoice">
+                <option value="Kore">Kore</option><option value="Aoede">Aoede</option>
+                <option value="Leda">Leda</option><option value="Zephyr">Zephyr</option>
+                <option value="Sulafat">Sulafat</option><option value="Puck">Puck</option>
+                <option value="Charon">Charon</option><option value="Orus">Orus</option>
+                <option value="Fenrir">Fenrir</option>
+            </select>
+        </div>
+
+        <div class="full-width slider-container">
+            <span style="font-size: 0.75em; color: #888;">SNELHEID: <span id="speedVal">1.0</span>x</span><br>
+            <input type="range" id="speedRate" min="0.5" max="2.0" step="0.1" value="1.0" oninput="document.getElementById('speedVal').innerText=this.value">
+        </div>
+
+        <div class="full-width">
+            <select id="modeSelect">
+                <option value="sentence">INTONATIE: HELE ZINNEN</option>
+                <option value="sentenceMarks">HELE ZINNEN + LEESTEKENS</option>
+                <option value="fine">FIJN (BIJ KOMMA'S)</option>
+            </select>
+        </div>
+
+        <button class="btn-play" id="playBtn">START</button>
+        <button class="btn-pause" onclick="pauseAll()">PAUZE</button>
+        <button class="btn-stop" onclick="stopAll()">STOP</button>
+        
+        <div class="full-width">
+            <select id="voiceSelect"><option>Laden...</option></select>
+        </div>
+    </div>
+</div>
+
+<script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+    let currentMode = 'file';
+    let extractedFileText = "";
+
+    function updateDisplay(nl, it) {
+        document.getElementById('display').innerHTML = `${nl}<br><span style="color: #008f11; font-size: 0.8em;">${it}</span>`;
+    }
+
+    function switchMode(mode) {
+        currentMode = mode;
+        document.getElementById('fileSection').style.display = (mode === 'file') ? 'block' : 'none';
+        document.getElementById('pasteSection').style.display = (mode === 'paste') ? 'block' : 'none';
+        document.getElementById('tabFile').classList.toggle('active', mode === 'file');
+        document.getElementById('tabPaste').classList.toggle('active', mode === 'paste');
+        updateDisplay(mode === 'file' ? "KIES BESTAND" : "PLAK TEKST", mode === 'file' ? "SCEGLI FILE" : "INCOLLA TESTO");
+    }
+
+    function loadVoices() {
+        const voices = window.speechSynthesis.getVoices();
+        const select = document.getElementById('voiceSelect');
+        const langCode = document.getElementById('langSelect').value.split('-')[0];
+        select.innerHTML = '';
+        voices.filter(v => v.lang.startsWith(langCode)).forEach(v => {
+            const opt = document.createElement('option');
+            opt.textContent = v.name; opt.value = v.name;
+            select.appendChild(opt);
+        });
+    }
+
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+
+    document.getElementById('fileInput').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        document.getElementById('fileLabel').innerText = file.name;
+        updateDisplay("LADEN...", "CARICAMENTO...");
+        
+        try {
+            let t = "";
+            if (file.type === "application/pdf") {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const content = await page.getTextContent();
+                    t += content.items.map(item => item.str).join(" ") + " ";
+                }
+            } else { t = await file.text(); }
+            
+            extractedFileText = t.replace(/(?<=[a-zA-Z])\s(?=[a-zA-Z]\b)/g, '').replace(/\s+/g, ' ').trim();
+            updateDisplay("BESTAND KLAAR", "FILE PRONTO");
+        } catch (e) { updateDisplay("FOUT", "ERRORE"); }
+    });
+
+    // ---------- Tekst opschonen voor TTS ----------
+    function cleanForSpeech(raw) {
+        let t = raw;
+        t = t.replace(/(\w)-\s*\n\s*(\w)/g, '$1$2');              // afgebroken woorden aan regeleinde
+        t = t.replace(/https?:\/\/\S+/g, ' ');                      // webadressen
+        t = t.replace(/\[\d+\]/g, ' ');                             // voetnootverwijzingen [1]
+        t = t.replace(/^\s*(pagina|page|pag\.?|p\.)?\s*\d+\s*$/gim, ' '); // losse paginanummers
+        t = t.replace(/[*_#~`^|<>\\\/=+]+/g, ' ');                  // markdown en symbolen
+        t = t.replace(/[«»"“”„‟'‘’‚‹›]/g, ' ');                     // aanhalingstekens
+        t = t.replace(/[()\[\]{}]/g, ', ');                         // haakjes -> korte pauze
+        t = t.replace(/\s[-–—]+\s/g, ', ');                         // gedachtestreepjes -> pauze
+        t = t.replace(/[–—]/g, ', ');
+        t = t.replace(/\.{2,}|…/g, '. ');                           // puntjes ...
+        t = t.replace(/([!?]){2,}/g, '$1');
+        t = t.replace(/\s*,(\s*,)+/g, ',');                         // dubbele komma's
+        t = t.replace(/\s+([,.;:!?])/g, '$1');                      // spatie voor leesteken weg
+        t = t.replace(/\s+/g, ' ').trim();
+        return t;
+    }
+
+    // ---------- Opdelen in natuurlijke stukjes ----------
+    // Leestekens worden NIET meegegeven aan de stem; de pauze tussen stukjes komt van de wachtrij.
+    function splitIntoChunks(text, mode = 'sentence', maxLen = 180, minLen = 25) {
+        const sentences = text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
+        let pieces = [];
+        if (mode === 'fine') {
+            for (const s of sentences) {
+                const parts = s.split(/(?<=[,;:])\s+/);
+                let buf = '';
+                for (const p of parts) {
+                    if (buf && buf.length < minLen) buf += ' ' + p;
+                    else { if (buf) pieces.push(buf); buf = p; }
+                }
+                if (buf) pieces.push(buf);
+            }
+        } else {
+            pieces = sentences; // hele zin in één keer: de stem ziet het einde van de zin vooruit
+        }
+        // alleen echt te lange stukken afbreken (bij komma, anders bij spatie)
+        const limit = (mode === 'fine') ? maxLen : 300;
+        const out = [];
+        for (let p of pieces) {
+            while (p.length > limit) {
+                let cut = p.lastIndexOf(', ', limit);
+                cut = cut > minLen ? cut + 1 : p.lastIndexOf(' ', limit);
+                if (cut < minLen) cut = limit;
+                out.push(p.slice(0, cut).trim());
+                p = p.slice(cut).trim();
+            }
+            if (p) out.push(p);
+        }
+        return out
+            .map(c => {
+                if (mode === 'sentenceMarks') return c;                    // leestekens blijven staan
+                return c.replace(/[.,;:!?]+/g, ' ').replace(/\s+/g, ' ').trim(); // geen leestekens
+            })
+            .filter(c => /[\p{L}\p{N}]/u.test(c));
+    }
+
+    let activeUtterances = []; // referentie vasthouden, anders kan de browser stukjes weggooien
+
+    document.getElementById('playBtn').addEventListener('click', () => {
+        if (userPaused) { resumeAll(); return; }
+        if (window.speechSynthesis.paused) { window.speechSynthesis.resume(); return; }
+        stopCloud();
+        window.speechSynthesis.cancel();
+
+        let textToRead = (currentMode === 'file') ? extractedFileText : document.getElementById('textInput').value;
+        if (!textToRead || !textToRead.trim()) { updateDisplay("GEEN TEKST", "NO TESTO"); return; }
+
+        if (document.getElementById('sourceSelect').value === 'cloud') { cloudPlay(textToRead); return; }
+
+        const chunks = splitIntoChunks(cleanForSpeech(textToRead), document.getElementById('modeSelect').value);
+        if (!chunks.length) { updateDisplay("GEEN TEKST", "NO TESTO"); return; }
+
+        const lang = document.getElementById('langSelect').value;
+        const voiceName = document.getElementById('voiceSelect').value;
+        const speed = parseFloat(document.getElementById('speedRate').value);
+        const v = window.speechSynthesis.getVoices().find(voice => voice.name === voiceName);
+
+        activeUtterances = chunks.map((text, index) => {
+            const ut = new SpeechSynthesisUtterance(text);
+            ut.lang = lang;
+            if (v) ut.voice = v;
+            ut.rate = speed;
+            if (index === 0) ut.onstart = () => updateDisplay("LEZEN...", "LEGGENDO...");
+            if (index === chunks.length - 1) ut.onend = () => updateDisplay("KLAAR", "FINITO");
+            return ut;
+        });
+        activeUtterances.forEach(ut => window.speechSynthesis.speak(ut));
+    });
+
+    // =====================================================================
+    //  GEMINI CLOUD-STEM (proef): alinea's, vooruit ophalen, opnieuw proberen,
+    //  en de telefoonstem als vangnet
+    // =====================================================================
+    const LS = {
+        get(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } },
+        set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+    };
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const STYLE_PROMPT = "Read the following text aloud in a calm, natural, warm narrator voice, with natural intonation:\n\n";
+
+    let cloudRun = 0;          // wordt opgehoogd bij elke start/stop; oude lussen stoppen zelf
+    let cloudAbort = null;
+    let userPaused = false;
+    let playingNow = false;
+    let audioResolve = null;
+    let localResolve = null;
+    const player = new Audio();
+
+    function onSourceChange() {
+        const v = document.getElementById('sourceSelect').value;
+        document.getElementById('cloudBox').style.display = (v === 'cloud') ? 'block' : 'none';
+        LS.set('altavoce_source', v);
+    }
+    (function initCloudSettings() {
+        document.getElementById('geminiKey').value = LS.get('altavoce_key', '');
+        document.getElementById('geminiModel').value = LS.get('altavoce_model', 'gemini-3.1-flash-tts-preview');
+        document.getElementById('geminiVoice').value = LS.get('altavoce_voice', 'Kore');
+        document.getElementById('sourceSelect').value = LS.get('altavoce_source', 'local');
+        document.getElementById('geminiKey').addEventListener('input', e => LS.set('altavoce_key', e.target.value.trim()));
+        document.getElementById('geminiModel').addEventListener('input', e => LS.set('altavoce_model', e.target.value.trim()));
+        document.getElementById('geminiVoice').addEventListener('change', e => LS.set('altavoce_voice', e.target.value));
+        onSourceChange();
+    })();
+
+    function makeBlocks(text, firstTarget = 200, target = 450, max = 650) {
+        const sentences = text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
+        const pieces = [];
+        for (let s of sentences) {
+            while (s.length > max) {                       // extreem lange zin: bij komma of spatie afbreken
+                let cut = s.lastIndexOf(', ', max);
+                cut = cut > 80 ? cut + 1 : s.lastIndexOf(' ', max);
+                if (cut < 80) cut = max;
+                pieces.push(s.slice(0, cut).trim());
+                s = s.slice(cut).trim();
+            }
+            if (s) pieces.push(s);
+        }
+        const blocks = [];
+        let buf = '';
+        for (const p of pieces) {
+            const goal = blocks.length === 0 ? firstTarget : target;   // eerste blokje klein: snel starten
+            if (buf && (buf.length + 1 + p.length) > goal) { blocks.push(buf); buf = p; }
+            else { buf = buf ? buf + ' ' + p : p; }
+        }
+        if (buf) blocks.push(buf);
+        return blocks;
+    }
+
+    function pcmToWavUrl(b64, mime) {
+        const m = /rate=(\d+)/.exec(mime || '');
+        const rate = m ? parseInt(m[1], 10) : 24000;
+        const bin = atob(b64);
+        const n = bin.length;
+        const buf = new ArrayBuffer(44 + n);
+        const dv = new DataView(buf);
+        const w = (o, str) => { for (let i = 0; i < str.length; i++) dv.setUint8(o + i, str.charCodeAt(i)); };
+        w(0, 'RIFF'); dv.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt ');
+        dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+        dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true);
+        dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, 'data'); dv.setUint32(40, n, true);
+        const u8 = new Uint8Array(buf, 44);
+        for (let i = 0; i < n; i++) u8[i] = bin.charCodeAt(i);
+        return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+    }
+
+    async function geminiSpeak(blockText, signal) {
+        const key = document.getElementById('geminiKey').value.trim();
+        const model = document.getElementById('geminiModel').value.trim();
+        const voice = document.getElementById('geminiVoice').value;
+        if (!key) { const e = new Error('geen sleutel'); e.status = 401; throw e; }
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: STYLE_PROMPT + blockText }] }],
+                generationConfig: {
+                    responseModalities: ['AUDIO'],
+                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } }
+                }
+            }),
+            signal
+        });
+        if (!res.ok) { const e = new Error('HTTP ' + res.status); e.status = res.status; throw e; }
+        const data = await res.json();
+        const parts = data?.candidates?.[0]?.content?.parts || [];
+        const part = parts.find(p => p.inlineData && p.inlineData.data);
+        if (!part) throw new Error('geen audio ontvangen');   // soms komt er tekst terug i.p.v. audio
+        return pcmToWavUrl(part.inlineData.data, part.inlineData.mimeType);
+    }
+
+    let lastCloudError = '';
+    async function fetchBlock(blockText, run, signal) {
+        const waits = [0, 1500, 4000, 9000];
+        for (let a = 0; a < waits.length; a++) {
+            if (waits[a]) await sleep(waits[a]);
+            if (run !== cloudRun) return null;
+            try { return await geminiSpeak(blockText, signal); }
+            catch (e) {
+                if (e.name === 'AbortError') return null;
+                lastCloudError = e.status ? String(e.status) : 'NET';
+                if ([400, 401, 403, 404].includes(e.status)) break;   // instelling fout: opnieuw proberen helpt niet
+            }
+        }
+        return null;
+    }
+
+    function playWav(url, run) {
+        return new Promise(resolve => {
+            const done = () => {
+                playingNow = false; audioResolve = null;
+                player.onended = player.onerror = null;
+                URL.revokeObjectURL(url);
+                resolve();
+            };
+            audioResolve = done;
+            playingNow = true;
+            player.onended = done;
+            player.onerror = done;
+            player.src = url;
+            player.playbackRate = parseFloat(document.getElementById('speedRate').value);
+            player.play().catch(done);
+        });
+    }
+
+    function speakLocalAsync(text) {
+        return new Promise(resolve => {
+            const chunks = splitIntoChunks(cleanForSpeech(text), 'sentence');
+            if (!chunks.length) return resolve();
+            const lang = document.getElementById('langSelect').value;
+            const voiceName = document.getElementById('voiceSelect').value;
+            const speed = parseFloat(document.getElementById('speedRate').value);
+            const v = window.speechSynthesis.getVoices().find(x => x.name === voiceName);
+            let remaining = chunks.length;
+            localResolve = resolve;
+            const fin = () => { if (--remaining <= 0) { localResolve = null; resolve(); } };
+            activeUtterances = chunks.map(c => {
+                const ut = new SpeechSynthesisUtterance(c);
+                ut.lang = lang; if (v) ut.voice = v; ut.rate = speed;
+                ut.onend = fin; ut.onerror = fin;
+                return ut;
+            });
+            activeUtterances.forEach(ut => window.speechSynthesis.speak(ut));
+        });
+    }
+
+    async function waitWhilePaused(run) {
+        while (userPaused && run === cloudRun) await sleep(200);
+    }
+
+    async function cloudPlay(rawText) {
+        stopCloud();
+        const run = ++cloudRun;
+        cloudAbort = new AbortController();
+        const signal = cloudAbort.signal;
+        const blocks = makeBlocks(cleanForSpeech(rawText));
+        if (!blocks.length) { updateDisplay("GEEN TEKST", "NO TESTO"); return; }
+
+        const AHEAD = 2;                       // zoveel blokjes alvast ophalen
+        const jobs = new Map();
+        const job = i => {
+            if (i >= blocks.length) return null;
+            if (!jobs.has(i)) jobs.set(i, fetchBlock(blocks[i], run, signal));
+            return jobs.get(i);
+        };
+
+        lastCloudError = '';
+        for (let i = 0; i < blocks.length; i++) {
+            if (run !== cloudRun) return;
+            for (let k = 0; k <= AHEAD; k++) job(i + k);
+            updateDisplay(`GENEREREN ${i + 1}/${blocks.length}`, "GEMINI ☁");
+            const url = await job(i);
+            jobs.delete(i);
+            if (run !== cloudRun) { if (url) URL.revokeObjectURL(url); return; }
+            await waitWhilePaused(run);
+            if (run !== cloudRun) return;
+            if (url) {
+                updateDisplay(`LEZEN ${i + 1}/${blocks.length}`, "GEMINI ☁");
+                await playWav(url, run);
+            } else {
+                updateDisplay(`CLOUD FOUT ${lastCloudError || '?'}`, "TELEFOONSTEM");
+                await speakLocalAsync(blocks[i]);
+            }
+        }
+        if (run === cloudRun) updateDisplay("KLAAR", "FINITO");
+    }
+
+    function stopCloud() {
+        cloudRun++;
+        userPaused = false;
+        if (cloudAbort) { cloudAbort.abort(); cloudAbort = null; }
+        if (audioResolve) audioResolve();
+        try { player.pause(); } catch (e) {}
+        if (localResolve) { const r = localResolve; localResolve = null; r(); }
+    }
+
+    function pauseAll() {
+        userPaused = true;
+        if (playingNow) player.pause();
+        window.speechSynthesis.pause();
+    }
+
+    function resumeAll() {
+        userPaused = false;
+        if (playingNow && player.paused) player.play().catch(() => {});
+        window.speechSynthesis.resume();
+    }
+
+    function stopAll() {
+        stopCloud();
+        window.speechSynthesis.cancel();
+    }
+
+    setTimeout(loadVoices, 500);
+</script>
+</body>
+</html>
